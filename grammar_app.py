@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
+import nltk
+nltk.download('punkt')
 from nltk.metrics import edit_distance
-
 # Grammar scoring function
 def grammar_score_edit_distance(original, corrected):
     distance = edit_distance(str(original), str(corrected))
