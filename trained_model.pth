@@ -1,0 +1,111 @@
+# Grammar Scoring Engine - Model Training Script
+
+import os
+import pandas as pd
+import numpy as np
+import torch
+import torchaudio
+import torch.nn as nn
+import torch.nn.functional as F
+import torchaudio.transforms as T
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
+
+# Set device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Paths
+DATA_DIR = "./data"
+TRAIN_CSV = os.path.join(DATA_DIR, "train.csv")
+AUDIO_DIR = os.path.join(DATA_DIR, "train_wav")
+MODEL_PATH = "trained_model.pth"
+
+# Load training data
+df = pd.read_csv(TRAIN_CSV)
+
+# Audio Dataset class
+class AudioDataset(Dataset):
+    def __init__(self, df, audio_dir, sr=16000, n_mfcc=40):
+        self.df = df
+        self.audio_dir = audio_dir
+        self.sr = sr
+        self.n_mfcc = n_mfcc
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        file_name = self.df.iloc[idx]['file_name']
+        label = self.df.iloc[idx]['grammar_score']
+        file_path = os.path.join(self.audio_dir, file_name)
+
+        waveform, sample_rate = torchaudio.load(file_path)
+        resampler = T.Resample(orig_freq=sample_rate, new_freq=self.sr)
+        waveform = resampler(waveform)
+
+        mfcc = T.MFCC(sample_rate=self.sr, n_mfcc=self.n_mfcc)(waveform)
+        mfcc = mfcc.mean(dim=0)  # (n_mfcc, time) -> (n_mfcc,)
+
+        return mfcc, torch.tensor(label, dtype=torch.float32)
+
+# Define regression model
+class AudioRegressor(nn.Module):
+    def __init__(self, input_dim):
+        super(AudioRegressor, self).__init__()
+        self.fc1 = nn.Linear(input_dim, 128)
+        self.dropout = nn.Dropout(0.3)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 1)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x.squeeze(1)
+
+# Train-validation split
+train_df, val_df = train_test_split(df, test_size=0.2, random_state=42)
+train_dataset = AudioDataset(train_df, AUDIO_DIR)
+val_dataset = AudioDataset(val_df, AUDIO_DIR)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=16)
+
+# Model setup
+model = AudioRegressor(input_dim=40).to(device)
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# Training loop
+epochs = 20
+for epoch in range(epochs):
+    model.train()
+    total_loss = 0
+    for mfccs, labels in tqdm(train_loader):
+        mfccs, labels = mfccs.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(mfccs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    avg_loss = total_loss / len(train_loader)
+
+    # Validation
+    model.eval()
+    val_preds, val_targets = [], []
+    with torch.no_grad():
+        for mfccs, labels in val_loader:
+            mfccs, labels = mfccs.to(device), labels.to(device)
+            outputs = model(mfccs)
+            val_preds.extend(outputs.cpu().numpy())
+            val_targets.extend(labels.cpu().numpy())
+
+    val_mse = mean_squared_error(val_targets, val_preds)
+    print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_loss:.4f}, Val MSE: {val_mse:.4f}")
+
+# Save model
+torch.save(model.state_dict(), MODEL_PATH)
+print(f"\n✅ Model saved to {MODEL_PATH}")
