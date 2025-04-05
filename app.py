@@ -2,10 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 
-# Load CSV
-df = pd.read_csv("Grammar Correction.csv")
-
-# API Endpoint for LanguageTool
+# LanguageTool Public API endpoint
 API_URL = "https://api.languagetool.org/v2/check"
 
 def get_grammar_score(text):
@@ -29,23 +26,43 @@ def get_grammar_score(text):
 
     return round(score, 2), suggestions
 
-st.title("📝 Grammar Scoring Engine (Streamlit + API)")
+# Streamlit App UI
+st.title("📝 Grammar Scoring Engine")
 
-for index, row in df.iterrows():
-    original = row["Ungrammatical Statement"]
-    corrected = row["Correct Sentence"]
+st.markdown("### 🔹 Enter your sentence to get grammar score:")
 
-    score, suggestions = get_grammar_score(original)
+user_input = st.text_area("Type your sentence here:", height=150)
 
-    with st.expander(f"🔸 Statement {index + 1}: {original}"):
-        st.markdown(f"**Corrected Sentence:** {corrected}")
-        st.markdown(f"**Grammar Score:** `{score}/100`")
-        if suggestions:
-            st.markdown("**Grammar Suggestions:**")
-            for s in suggestions:
-                st.write(f"• {s}")
-        else:
-            st.success("✅ No grammar issues found!")
+if st.button("Check Grammar Score"):
+    score, suggestions = get_grammar_score(user_input)
+
+    st.markdown(f"### ✅ Grammar Score: `{score}/100`")
+
+    if suggestions:
+        st.markdown("### 📌 Suggestions:")
+        for s in suggestions:
+            st.write(f"• {s}")
+    else:
+        st.success("🎉 No grammar issues found!")
 
 st.markdown("---")
-st.caption("Powered by LanguageTool Public API 🌐")
+st.markdown("You can also upload and score multiple sentences from a file below.")
+
+# Optionally: Process your dataset
+uploaded_file = st.file_uploader("Upload a CSV file with a column named 'Ungrammatical Statement'", type=['csv'])
+
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    st.markdown("### 📊 Results from uploaded file:")
+    for index, row in df.iterrows():
+        statement = row.get("Ungrammatical Statement", "")
+        score, suggestions = get_grammar_score(statement)
+
+        with st.expander(f"🔸 Statement {index + 1}: {statement}"):
+            st.markdown(f"**Grammar Score:** `{score}/100`")
+            if suggestions:
+                st.markdown("**Suggestions:**")
+                for s in suggestions:
+                    st.write(f"• {s}")
+            else:
+                st.success("✅ No grammar issues found.")
