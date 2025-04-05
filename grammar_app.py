@@ -32,7 +32,7 @@ st.header("Upload CSV File")
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(Grammar Correction.csv)
     if "Incorrect Sentence" in df.columns and "Correct Sentence" in df.columns:
         df["Grammar_Score"] = df.apply(
             lambda row: grammar_score_edit_distance(row["Incorrect Sentence"], row["Correct Sentence"]), axis=1
