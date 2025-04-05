@@ -2,130 +2,79 @@ import streamlit as st
 import requests
 import speech_recognition as sr
 import tempfile
-from pydub import AudioSegment
 
-# Grammar Scoring Function
+# LanguageTool API
 API_URL = "https://api.languagetool.org/v2/check"
 
 def get_grammar_score(text):
     if not text.strip():
         return 0, []
-    data = {
-        'text': text,
-        'language': 'en-US'
-    }
     try:
-        response = requests.post(API_URL, data=data)
-        result = response.json()
-        matches = result.get("matches", [])
+        response = requests.post(API_URL, data={'text': text, 'language': 'en-US'})
+        matches = response.json().get("matches", [])
+        error_count = len(matches)
+        word_count = len(text.split())
+        score = max(0, 100 - (error_count / word_count) * 100) if word_count else 0
+        suggestions = [m.get("message", "") for m in matches]
+        return round(score, 2), suggestions
     except Exception as e:
-        return 0, [f"Error: {e}"]
+        return 0, [f"API Error: {e}"]
 
-    error_count = len(matches)
-    word_count = len(text.split())
-    score = max(0, 100 - (error_count / word_count) * 100) if word_count else 0
-    suggestions = [m.get("message", "") for m in matches]
-    return round(score, 2), suggestions
-
-
-# Speech-to-Text from Uploaded Audio
-def transcribe_audio(file):
-    r = sr.Recognizer()
-
-    # Convert mp3 to wav if needed
-    audio = AudioSegment.from_file(file)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-        audio.export(tmp_wav.name, format="wav")
-        with sr.AudioFile(tmp_wav.name) as source:
-            audio_data = r.record(source)
+def transcribe_audio(audio_file):
+    recognizer = sr.Recognizer()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+        tmp_file.write(audio_file.read())
+        tmp_file.flush()
+        with sr.AudioFile(tmp_file.name) as source:
+            audio = recognizer.record(source)
             try:
-                text = r.recognize_google(audio_data)
-                return text
+                return recognizer.recognize_google(audio)
             except sr.UnknownValueError:
-                return "Could not understand audio."
-            except sr.RequestError:
-                return "Speech recognition service is unavailable."
+                return "❗ Could not understand the audio."
+            except sr.RequestError as e:
+                return f"❗ Speech recognition error: {e}"
 
-
-# ----------------- Streamlit UI -------------------
+# Streamlit UI
 st.set_page_config(page_title="Grammar Scoring Engine", layout="centered")
 st.title("📝 Grammar Scoring Engine")
-st.markdown("Check your grammar from text or voice 🎙️")
+st.markdown("Check grammar of text or voice input (WAV only)")
 
-# Text Input
-st.markdown("## ✍️ Type your sentence")
-user_input = st.text_area("Enter your sentence here:", height=150)
+# --- Text Input ---
+st.subheader("✍️ Type your sentence:")
+user_text = st.text_area("Enter sentence:", height=150)
 
-if st.button("Check Text Grammar"):
-    score, suggestions = get_grammar_score(user_input)
-    st.markdown(f"### 📊 Grammar Score: `{score}/100`")
+if st.button("Check Grammar (Text)"):
+    score, suggestions = get_grammar_score(user_text)
+    st.markdown(f"### 📊 Score: `{score}/100`")
     if suggestions:
         st.markdown("### 📌 Suggestions:")
         for s in suggestions:
             st.write(f"• {s}")
     else:
-        st.success("🎉 No grammar issues found!")
+        st.success("✅ No grammar issues found.")
 
-st.markdown("---")
+# --- Voice Input ---
+st.subheader("🎤 Upload a voice note (WAV format only):")
+audio_file = st.file_uploader("Choose a .wav file", type=["wav"])
 
-# Voice Input
-st.markdown("## 🎤 Upload a Voice Note (MP3/WAV)")
-uploaded_audio = st.file_uploader("Upload audio", type=['wav', 'mp3'])
-
-if uploaded_audio is not None:
+if audio_file:
     with st.spinner("Transcribing audio..."):
-        transcribed_text = transcribe_audio(uploaded_audio)
-        st.markdown(f"### 🗣️ Transcribed Text:\n`{transcribed_text}`")
-        score, suggestions = get_grammar_score(transcribed_text)
-        st.markdown(f"### 📊 Grammar Score: `{score}/100`")
-        if suggestions:
-            st.markdown("### 📌 Suggestions:")
-            for s in suggestions:
-                st.write(f"• {s}")
+        transcribed = transcribe_audio(audio_file)
+        st.markdown(f"### 🗣️ Transcribed Text:\n`{transcribed}`")
+
+        if not transcribed.startswith("❗"):
+            score, suggestions = get_grammar_score(transcribed)
+            st.markdown(f"### 📊 Score: `{score}/100`")
+            if suggestions:
+                st.markdown("### 📌 Suggestions:")
+                for s in suggestions:
+                    st.write(f"• {s}")
+            else:
+                st.success("✅ No grammar issues found.")
         else:
-            st.success("🎉 No grammar issues found!")
+            st.error(transcribed)
 
-st.caption("Built with 💙 using Streamlit, SpeechRecognition & LanguageTool API")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+st.caption("Built with 💙 using Streamlit + Google Speech Recognition + LanguageTool API")
 
 
 # import streamlit as st
